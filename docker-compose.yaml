@@ -1,0 +1,13 @@
+services:
+  service_one:
+    build:
+      context: ./service_one
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+  service_two:
+    build:
+      context: ./service_two
+      dockerfile: Dockerfile
+    ports:
+      - "8081:80"
