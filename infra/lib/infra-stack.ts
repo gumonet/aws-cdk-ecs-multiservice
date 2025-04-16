@@ -1,144 +1,87 @@
 import * as cdk from "aws-cdk-lib";
+import { ContainerImage, Secret } from "aws-cdk-lib/aws-ecs";
 import { Construct } from "constructs";
-import { InfraStackProps } from "./modules/interfaces";
-import { Port, Vpc } from "aws-cdk-lib/aws-ec2";
 import {
-  Cluster,
-  ContainerImage,
-  FargateService,
-  FargateTaskDefinition,
-  LogDriver,
-} from "aws-cdk-lib/aws-ecs";
-import {
-  ApplicationLoadBalancer,
-  ApplicationProtocol,
-  ApplicationTargetGroup,
-  TargetType,
-} from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { Repository } from "aws-cdk-lib/aws-ecr";
-import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+  createLogginDriver,
+  getImageFromRepository,
+  getSecret,
+  getTaskRole,
+  getVPC,
+  selectSubnetsById,
+} from "./modules/utils";
+import { ECSDefinitions } from "./modules/ecs";
+import { infraProps } from "./modules/interfaces";
+import { ApiGatewayConfiguration } from "./modules/apiGateway";
+import { stakLoadBalancer } from "./modules/loadBalancer";
 
-export class EcsMiltiTask extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: InfraStackProps) {
+export class ZappDemoHttpServer extends cdk.Stack {
+  constructor(scope: Construct, id: string, props: infraProps) {
     super(scope, id, props);
-    const vpc = Vpc.fromLookup(this, "Vpc", {
-      vpcId: props.vpcId,
-    });
-    const repository = Repository.fromRepositoryName(
+
+    const memoryLimitMiB = 1024;
+    const cpu = 512;
+
+    const taskRole = getTaskRole(this);
+
+    /*const tagName = new cdk.CfnParameter(this, "tagName", {
+      type: "String",
+      description: "Tue name of the tag in the ECR repo to be deployed",
+    });*/
+
+    const secret = getSecret(this, props.secretId, this.region, this.account);
+    secret.grantRead(taskRole);
+
+    const vpc = getVPC(this, props.vpcId);
+    const stackLoaBalancerInstance = new stakLoadBalancer(
       this,
-      "EcrRepo",
-      "example"
+      vpc,
+      this.region,
+      this.account,
+      props.mainZappNLB
+    );
+    const ecsIntance = new ECSDefinitions(
+      this,
+      `ZappMainCluster-${props.stage}`,
+      vpc,
+      props.stage,
+      stackLoaBalancerInstance
     );
 
-    const cluster = new Cluster(this, "EcsCluster", {
-      vpc,
-      clusterName: `MultitaskCluster-${props.environment}`,
+    //GetImageFromECR
+    /*const image = getImageFromRepository(
+      this,
+      props.repositoryName,
+      tagName.valueAsString
+    );*/
+    const subnets = selectSubnetsById(this, props.subnetIds);
+
+    ecsIntance.addServiceDefinition({
+      identifier_str: `demo-http-${props.stage}`,
+      cpu: cpu,
+      memoryLimitMiB: memoryLimitMiB,
+      taskRole: taskRole,
+      subnets: subnets,
+      containers: [
+        {
+          containerName: `demo-http-${props.stage}`,
+          ecrImage: ContainerImage.fromRegistry("nginx:latest"),
+          containerPorts: [{ containerPort: 80, listenerName: "HTTP" }],
+          loggin: createLogginDriver(
+            this,
+            `demo-http-${props.stage}`,
+            props.stage
+          ),
+          secrets: {},
+        },
+      ],
     });
 
-    const taskDefinitionOne = new FargateTaskDefinition(this, "TaskDefOne");
-    const taskDefinitionTwo = new FargateTaskDefinition(this, "TaskDefTwo");
-
-    //Task definition for One
-    taskDefinitionOne.addContainer("ContainerOne", {
-      image: ContainerImage.fromEcrRepository(repository, "service-one"),
-      memoryLimitMiB: 512,
-      cpu: 256,
-      portMappings: [{ containerPort: 80 }],
-      logging: LogDriver.awsLogs({
-        streamPrefix: `container-one-${props.environment}`,
-        logGroup: new LogGroup(this, "LogGroupOne", {
-          logGroupName: `/ecs/container-one-${props.environment}`,
-          removalPolicy: cdk.RemovalPolicy.DESTROY,
-          retention: RetentionDays.ONE_WEEK,
-        }),
-      }),
-    });
-
-    //Task definition for Two
-    taskDefinitionTwo.addContainer("ContainerTwo", {
-      image: ContainerImage.fromEcrRepository(repository, "service-two"),
-      memoryLimitMiB: 512,
-      cpu: 256,
-      portMappings: [{ containerPort: 80 }],
-      logging: LogDriver.awsLogs({
-        streamPrefix: `container-two-${props.environment}`,
-        logGroup: new LogGroup(this, "LogGroupTwo", {
-          logGroupName: `/ecs/container-two-${props.environment}`,
-          removalPolicy: cdk.RemovalPolicy.DESTROY,
-          retention: RetentionDays.ONE_WEEK,
-        }),
-      }),
-    });
-
-    //General load balancer
-    const lb = new ApplicationLoadBalancer(this, "ALB", {
-      vpc,
-      internetFacing: true,
-      loadBalancerName: `MultitaskALB-${props.environment}`,
-    });
-
-    //Listener for one
-    const listener3000 = lb.addListener("ListenerOne", {
-      port: 3000,
-      open: true,
-      protocol: ApplicationProtocol.HTTP,
-    });
-
-    //Listener for one
-    const listener4000 = lb.addListener("ListenerTwo", {
-      port: 4000,
-      open: true,
-      protocol: ApplicationProtocol.HTTP,
-    });
-
-    //TargetForGroup for one
-    const targetOne = new ApplicationTargetGroup(this, "TargetGroupOne", {
-      targetGroupName: `TargetGroupOne-${props.environment}`,
-      port: 80,
-      protocol: ApplicationProtocol.HTTP,
-      targetType: TargetType.IP,
-      vpc,
-    });
-
-    const targetTwo = new ApplicationTargetGroup(this, "TargetGroupTwo", {
-      targetGroupName: `TargetGroupTwo-${props.environment}`,
-      port: 80,
-      protocol: ApplicationProtocol.HTTP,
-      targetType: TargetType.IP,
-      vpc,
-    });
-
-    //Add listener to one for one target group
-    listener3000.addTargetGroups("TargetGroupOne", {
-      targetGroups: [targetOne],
-    });
-
-    listener4000.addTargetGroups("TargetGroupTwo", {
-      targetGroups: [targetTwo],
-    });
-
-    //Create the ECS service
-    const serviceOne = new FargateService(this, "ServiceOne", {
-      cluster,
-      taskDefinition: taskDefinitionOne,
-      desiredCount: 1,
-      serviceName: `ServiceOne-${props.environment}`,
-    });
-
-    //Create the ECS service two
-    const serviceTwo = new FargateService(this, "ServiceTwo", {
-      cluster,
-      taskDefinition: taskDefinitionTwo,
-      desiredCount: 1,
-      serviceName: `ServicOTwo-${props.environment}`,
-    });
-
-    //Set new service to target group
-    targetOne.addTarget(serviceOne);
-    targetTwo.addTarget(serviceTwo);
-    new cdk.CfnOutput(this, "ALB DNS", {
-      value: lb.loadBalancerDnsName,
-    });
+    /*new ApiGatewayConfiguration(
+      this,
+      props.apiGateway,
+      props.vpcLinkId,
+      stackLoaBalancerInstance.getLoadBalancerObject(),
+      props.stage
+    );*/
   }
 }

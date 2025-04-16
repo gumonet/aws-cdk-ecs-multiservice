@@ -84,5 +84,13 @@
         ]
       }
     ]
+  },
+  "load-balancer:account=438605559430:loadBalancerArn=arn$:aws$:elasticloadbalancing$:us-east-1$:438605559430$:loadbalancer/net/ZappMainNLB-dev/99934751df82ff15:loadBalancerType=network:region=us-east-1": {
+    "loadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:438605559430:loadbalancer/net/ZappMainNLB-dev/99934751df82ff15",
+    "loadBalancerCanonicalHostedZoneId": "Z26RNL4JYFTOTI",
+    "loadBalancerDnsName": "ZappMainNLB-dev-99934751df82ff15.elb.us-east-1.amazonaws.com",
+    "vpcId": "vpc-00b31d1ea6e9c5901",
+    "securityGroupIds": [],
+    "ipAddressType": "ipv4"
   }
 }
