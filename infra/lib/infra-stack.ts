@@ -76,12 +76,12 @@ export class ZappDemoHttpServer extends cdk.Stack {
       ],
     });
 
-    /*new ApiGatewayConfiguration(
+    new ApiGatewayConfiguration(
       this,
       props.apiGateway,
       props.vpcLinkId,
       stackLoaBalancerInstance.getLoadBalancerObject(),
       props.stage
-    );*/
+    );
   }
 }
